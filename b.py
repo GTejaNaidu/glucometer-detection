@@ -3932,28 +3932,28 @@ def tech_support_page():
                 "role": "Lead Developer",
                 "phone": "9686555926",
                 "email": "gtejanaidu.info@gmail.com",
-                "image": r"C:\Users\tejan\OneDrive\Desktop\OCR\WhatsApp Image 2025-11-15 at 18.58.31_6664e6e3.jpg"
+                "image": "static/images/teja.jpg"
             },
             {
                 "name": "Samuvel",
                 "role": "Developer",
                 "phone": "9003229709",
                 "email": "melchisammy@gmail.com",
-                "image": r"C:\Users\tejan\OneDrive\Desktop\OCR\WhatsApp Image 2025-11-15 at 19.00.35_6b03fb5e.jpg"
+                "image": "static/images/samuvel.jpg"
             },
             {
                 "name": "Raju",
                 "role": "Developer",
                 "phone": "87222 97627",
                 "email": "rajub14325@gmail.com",
-                "image": r"C:\Users\tejan\OneDrive\Desktop\OCR\WhatsApp Image 2025-11-15 at 18.49.15_310be34a.jpg"
+                "image": "static/images/raju.jpg"
             },
             {
                 "name": "Jayanth",
                 "role": "Developer",
                 "phone": "8867353499",
                 "email": "jjayanthkumar61@gmail.com",
-                "image": r"C:\Users\tejan\OneDrive\Desktop\OCR\WhatsApp Image 2025-11-15 at 18.59.08_f495d0d5.jpg"
+                "image": "static/images/jayanth.jpg"
             }
         ]
         
