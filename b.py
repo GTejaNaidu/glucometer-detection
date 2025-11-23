@@ -3912,6 +3912,22 @@ def ai_assistant_page():
     st.markdown("---")
     st.info("⚠️ **Disclaimer:** This AI assistant provides general information only. Always consult with qualified healthcare professionals for personalized medical advice, diagnosis, or treatment decisions.")
 
+def show_placeholder(dev_name):
+    """Display a placeholder when an image fails to load"""
+    st.markdown(f"""
+    <div style="display: flex; flex-direction: column; align-items: center; margin: 15px 0;">
+        <div style="width: 150px; height: 150px; border-radius: 50%; 
+                   background: #f0f2f6; border: 3px solid #ddd; 
+                   display: flex; align-items: center; justify-content: center;
+                   color: #666; font-size: 18px; margin-bottom: 10px;">
+            📷
+        </div>
+        <div style="color: #ff4b4b; font-size: 0.8rem; text-align: center;">
+            Could not load image for {dev_name}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
 def tech_support_page():
     """Tech Support page with developer contact information"""
     st.title("🛠️ Technical Support")
@@ -3953,7 +3969,7 @@ def tech_support_page():
                 "role": "Developer",
                 "phone": "8867353499",
                 "email": "jjayanthkumar61@gmail.com",
-                "image": "static/images/jayanth.jpg"
+                "image": "static/images/jayanth_new.jpg"
             }
         ]
         
@@ -3976,33 +3992,29 @@ def tech_support_page():
                         
                         # Display image using Streamlit's native image function
                         try:
-                            if Path(dev['image']).exists():
-                                # Center the image
-                                col1, col2, col3 = st.columns([1, 2, 1])
-                                with col2:
-                                    st.image(dev['image'], width=150, caption="")
+                            image_path = Path(dev['image'])
+                            st.write(f"Debug - Loading image for {dev['name']}: {image_path}")
+                            st.write(f"File exists: {image_path.exists()}")
+                            if image_path.exists():
+                                st.write(f"File size: {image_path.stat().st_size} bytes")
+                                try:
+                                    # Try to open the image to check if it's valid
+                                    with Image.open(image_path) as img:
+                                        img.verify()  # Verify that it is, in fact, an image
+                                    # Center the image
+                                    col1, col2, col3 = st.columns([1, 2, 1])
+                                    with col2:
+                                        st.image(str(image_path), width=150, caption="")
+                                except Exception as e:
+                                    st.error(f"Error loading image for {dev['name']}: {str(e)}")
+                                    # Show placeholder with error
+                                    show_placeholder(dev['name'])
                             else:
-                                st.markdown("""
-                                <div style="display: flex; justify-content: center; margin: 15px 0;">
-                                    <div style="width: 150px; height: 150px; border-radius: 50%; 
-                                               background: #f0f2f6; border: 3px solid #ddd; 
-                                               display: flex; align-items: center; justify-content: center;
-                                               color: #666; font-size: 18px;">
-                                        📷
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                        except Exception:
-                            st.markdown("""
-                            <div style="display: flex; justify-content: center; margin: 15px 0;">
-                                <div style="width: 150px; height: 150px; border-radius: 50%; 
-                                           background: #f0f2f6; border: 3px solid #ddd; 
-                                           display: flex; align-items: center; justify-content: center;
-                                           color: #666; font-size: 18px;">
-                                    📷
-                                </div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                                st.error(f"Image file not found for {dev['name']}: {image_path}")
+                                show_placeholder(dev['name'])
+                        except Exception as e:
+                            st.error(f"Unexpected error for {dev['name']}: {str(e)}")
+                            show_placeholder(dev['name'])
                         
                         # Contact information in a clean box
                         st.markdown(f"""
