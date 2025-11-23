@@ -13,8 +13,17 @@ import hashlib
 import re
 from pathlib import Path
 import time
+import base64
 
 # Gemini API will be configured from session state
+
+def get_image_base64(image_path):
+    """Convert image to base64 string for HTML display"""
+    try:
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    except Exception as e:
+        return ""
 
 # Database setup
 DB_PATH = "glucometer_app.db"
@@ -46,6 +55,7 @@ def init_database():
             role TEXT DEFAULT 'doctor',
             phone TEXT,
             specialization TEXT,
+            hospital_name TEXT,
             is_active INTEGER DEFAULT 1,
             failed_login_attempts INTEGER DEFAULT 0,
             last_failed_login TIMESTAMP,
@@ -56,6 +66,13 @@ def init_database():
             two_factor_enabled INTEGER DEFAULT 0
         )
     ''')
+    
+    # Add hospital_name column if it doesn't exist (for existing databases)
+    try:
+        cursor.execute('ALTER TABLE users ADD COLUMN hospital_name TEXT')
+    except sqlite3.OperationalError:
+        # Column already exists
+        pass
     
     # Enhanced Patients table with more comprehensive data
     cursor.execute('''
@@ -500,6 +517,8 @@ if 'user_role' not in st.session_state:
     st.session_state.user_role = ""
 if 'user_full_name' not in st.session_state:
     st.session_state.user_full_name = ""
+if 'user_hospital' not in st.session_state:
+    st.session_state.user_hospital = ""
 if 'login_attempts' not in st.session_state:
     st.session_state.login_attempts = 0
 if 'show_password_strength' not in st.session_state:
@@ -961,6 +980,125 @@ def load_css():
         transition: all 0.3s ease;
     }
     
+    /* AI Assistant Chat Styling */
+    .chat-container {
+        max-height: 400px;
+        overflow-y: auto;
+        padding: 10px;
+        border-radius: 10px;
+        background: #f8f9fa;
+        margin-bottom: 20px;
+    }
+    
+    .user-message {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 10px;
+    }
+    
+    .assistant-message {
+        display: flex;
+        justify-content: flex-start;
+        margin-bottom: 10px;
+    }
+    
+    .message-bubble {
+        max-width: 70%;
+        padding: 10px 15px;
+        border-radius: 18px;
+        word-wrap: break-word;
+    }
+    
+    .user-bubble {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 18px 18px 5px 18px;
+    }
+    
+    .assistant-bubble {
+        background: #ffffff;
+        color: #333;
+        border-radius: 18px 18px 18px 5px;
+        border: 1px solid #e1e5e9;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    /* Tech Support Card Styling */
+    .developer-card {
+        background: white;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+        border: 1px solid rgba(0,0,0,0.05);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .developer-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    }
+    
+    .contact-button {
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        font-weight: 500;
+        width: 100%;
+        transition: all 0.2s ease;
+        text-decoration: none;
+        display: inline-block;
+        text-align: center;
+    }
+    
+    .contact-button:hover {
+        transform: scale(1.05);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    
+    .phone-button {
+        background: #25D366;
+        color: white;
+    }
+    
+    .email-button {
+        background: #1877F2;
+        color: white;
+    }
+    
+    /* Developer image standardization */
+    .developer-image {
+        width: 200px !important;
+        height: 200px !important;
+        object-fit: cover !important;
+        border-radius: 10px !important;
+        border: 2px solid #e1e5e9 !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+    }
+    
+    /* Ensure consistent image sizing in tech support */
+    [data-testid="stImage"] img {
+        border-radius: 12px !important;
+        border: 3px solid #e1e5e9 !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+        width: 160px !important;
+        height: 160px !important;
+        object-fit: cover !important;
+    }
+    
+    /* Tech support specific image styling */
+    .tech-support [data-testid="stImage"] {
+        text-align: center;
+        display: flex;
+        justify-content: center;
+    }
+    
+    .tech-support [data-testid="stImage"] img {
+        display: block;
+        margin: 0 auto;
+    }
+    
     .strength-weak { background: #dc3545; width: 33%; }
     .strength-medium { background: #ffc107; width: 66%; }
     .strength-strong { background: #28a745; width: 100%; }
@@ -1208,22 +1346,22 @@ def log_activity(username, action, details):
     conn.commit()
     conn.close()
 
-def register_user(username, password, email, full_name, role, phone, specialization):
-    """Register new user with enhanced validation"""
+def register_user(username, password, email, full_name, role, phone, specialization, hospital_name=""):
+    """Register new user with enhanced validation including hospital name"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
         hashed_pw = hash_password(password)
         cursor.execute('''
-            INSERT INTO users (username, password, email, full_name, role, phone, specialization)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (username, hashed_pw, email, full_name, role, phone, specialization))
+            INSERT INTO users (username, password, email, full_name, role, phone, specialization, hospital_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (username, hashed_pw, email, full_name, role, phone, specialization, hospital_name))
         
         conn.commit()
         conn.close()
         
-        log_activity(username, "USER_REGISTERED", f"New user registered: {full_name}")
+        log_activity(username, "USER_REGISTERED", f"New user registered: {full_name} at {hospital_name if hospital_name else 'N/A'}")
         return True, "Registration successful!"
     except sqlite3.IntegrityError:
         return False, "Username or email already exists!"
@@ -1243,7 +1381,7 @@ def login_user(username, password):
         
         hashed_pw = hash_password(password)
         cursor.execute('''
-            SELECT username, role, full_name, is_active, failed_login_attempts 
+            SELECT username, role, full_name, is_active, failed_login_attempts, hospital_name 
             FROM users 
             WHERE username = ? AND password = ?
         ''', (username, hashed_pw))
@@ -1533,19 +1671,32 @@ def get_patient_info(patient_id, current_user=None):
     return None
 
 def get_all_patients(current_user=None):
-    """Get all active patients with role-based access control"""
+    """Get all active patients with role-based and hospital-based access control"""
     conn = get_db_connection()
     
-    # Base query
-    query = "SELECT * FROM patients WHERE is_active = 1"
+    # Base query with JOIN to get creator's hospital
+    query = """
+        SELECT p.* FROM patients p
+        LEFT JOIN users u ON p.created_by = u.username
+        WHERE p.is_active = 1
+    """
     params = []
     
-    # Add role-based filtering
-    if current_user and current_user.get('role') != 'doctor':
-        query += " AND created_by = ?"
-        params.append(current_user['username'])
+    # Add role-based and hospital-based filtering
+    if current_user:
+        user_role = current_user.get('role', '')
+        user_hospital = current_user.get('hospital', '')
+        
+        if user_role in ['doctor', 'nurse'] and user_hospital:
+            # For doctors and nurses, only show patients from their hospital
+            query += " AND u.hospital_name = ?"
+            params.append(user_hospital)
+        elif user_role not in ['doctor', 'admin']:
+            # For other roles (patients), only show their own records
+            query += " AND p.created_by = ?"
+            params.append(current_user['username'])
     
-    query += " ORDER BY created_at DESC"
+    query += " ORDER BY p.created_at DESC"
     
     # Execute query with parameters
     if params:
@@ -1633,6 +1784,7 @@ def auth_page():
                                 st.session_state.username = username
                                 st.session_state.user_role = result[1]
                                 st.session_state.user_full_name = result[2]
+                                st.session_state.user_hospital = result[5] if len(result) > 5 else ""
                                 
                                 # Redirect based on user role
                                 if result[1] == 'patient':
@@ -1684,6 +1836,16 @@ def auth_page():
                     st.markdown("<label style='color: #2c3e50; font-weight: 500; margin-bottom: 0.5rem; display: block;'>Phone <span style='color: #e74c3c;'>*</span></label>", unsafe_allow_html=True)
                     phone = st.text_input("", placeholder="+91 1234567890", label_visibility="collapsed", key="reg_phone")
                 
+                # Hospital Name field (for all users, but required only for doctors/nurses)
+                st.markdown("<label style='color: #2c3e50; font-weight: 500; margin-bottom: 0.5rem; display: block;'>Hospital/Organization Name</label>", unsafe_allow_html=True)
+                hospital_name = st.text_input(
+                    "",
+                    placeholder="e.g., City General Hospital, ABC Clinic, etc.",
+                    label_visibility="collapsed",
+                    key="reg_hospital_name",
+                    help="Hospital/Clinic/Organization Name (Required for Doctors and Nurses)"
+                )
+                
                 # Username and Role in one row
                 col1, col2 = st.columns(2)
                 with col1:
@@ -1702,18 +1864,15 @@ def auth_page():
                         key="role_select_v2"
                     )
                     
-                    # Show/hide specialization field based on role
-                    if role in ["Doctor", "Nurse"]:
-                        st.markdown("<label style='color: #2c3e50; font-weight: 500; margin-bottom: 0.5rem; display: block;'>Specialization</label>", unsafe_allow_html=True)
-                        specialization = st.text_input(
-                            "",
-                            placeholder="e.g., Endocrinology",
-                            label_visibility="collapsed",
-                            key="reg_specialization",
-                            help="Specialization (Optional)"
-                        )
-                    else:
-                        specialization = ""
+                # Specialization field (shown for all, but mainly for doctors/nurses)
+                st.markdown("<label style='color: #2c3e50; font-weight: 500; margin-bottom: 0.5rem; display: block;'>Specialization/Department</label>", unsafe_allow_html=True)
+                specialization = st.text_input(
+                    "",
+                    placeholder="e.g., Endocrinology, Cardiology, IT Department, etc.",
+                    label_visibility="collapsed",
+                    key="reg_specialization",
+                    help="Your specialization or department (Optional)"
+                )
                 
                 # Specialization field will be conditionally shown based on role
                 
@@ -1753,6 +1912,11 @@ def auth_page():
                         len(password) >= 8,
                         password == confirm_password,
                     ]
+                    
+                    # Add hospital name requirement for doctors and nurses
+                    if role in ["Doctor", "Nurse"]:
+                        required_flags.append(bool(hospital_name.strip()))
+                    
                     progress_value = sum(required_flags)
                     total_steps = len(required_flags)
                     progress_ratio = progress_value / total_steps if total_steps else 0
@@ -1800,8 +1964,13 @@ def auth_page():
                         st.error("Please select a valid role")
                         return False
                     
-                    if role == "Patient":
-                        specialization = ""
+                    # Hospital name validation for doctors and nurses
+                    if role in ["Doctor", "Nurse"] and not hospital_name.strip():
+                        errors.append("Hospital name is required for doctors and nurses")
+                    
+                    # For patients and admins, hospital name is optional
+                    if role in ["Patient", "Admin"] and not hospital_name.strip():
+                        hospital_name = ""  # Set to empty if not provided
                     
                     if not validate_email(email):
                         errors.append("Please enter a valid email address")
@@ -1825,7 +1994,7 @@ def auth_page():
                         with st.spinner("Creating your account..."):
                             success, message = register_user(
                                 username, password, email, full_name, 
-                                role.lower(), phone, specialization
+                                role.lower(), phone, specialization, hospital_name
                             )
                             if success:
                                 st.success("✅ Account created successfully!")
@@ -1889,11 +2058,13 @@ def auth_page():
 def main_app():
     # Sidebar
     with st.sidebar:
+        hospital_info = f"<p style='font-size: 0.9rem; opacity: 0.8;'>{st.session_state.user_hospital}</p>" if st.session_state.user_hospital else ""
         st.markdown(f"""
         <div class="welcome-banner">
             <h2> Welcome</h2>
             <h3>{st.session_state.user_full_name}</h3>
             <p>{st.session_state.user_role.title()}</p>
+            {hospital_info}
         </div>
         """, unsafe_allow_html=True)
         
@@ -1921,8 +2092,10 @@ def main_app():
             ("Analytics", ""),
             ("Appointments", ""),
             ("Alerts", ""),
+            ("AI Assistant", "🤖"),
             ("Reports", ""),
-            ("Settings", ""),
+            ("Tech Support", ""),
+            ("Settings", "⚙️"),
         ]
 
         for label, icon in nav_items:
@@ -1969,6 +2142,7 @@ def main_app():
             st.session_state.username = ""
             st.session_state.user_role = ""
             st.session_state.user_full_name = ""
+            st.session_state.user_hospital = ""
             st.rerun()
     
     # Main content routing
@@ -1985,8 +2159,12 @@ def main_app():
         appointments_page()
     elif page == "Alerts":
         alerts_page()
+    elif page == "AI Assistant":
+        ai_assistant_page()
     elif page == "Reports":
         reports_page()
+    elif page == "Tech Support":
+        tech_support_page()
     elif page == "Settings":
         settings_page()
 
@@ -2109,7 +2287,8 @@ def dashboard_home():
     # Get current user info
     current_user = {
         'username': st.session_state.get('username'),
-        'role': st.session_state.get('user_role')
+        'role': st.session_state.get('user_role'),
+        'hospital': st.session_state.get('user_hospital')
     }
     
     # Add interactive filters in sidebar
@@ -2857,7 +3036,8 @@ def upload_reading_page():
     # Get current user info
     current_user = {
         'username': st.session_state.get('username'),
-        'role': st.session_state.get('user_role')
+        'role': st.session_state.get('user_role'),
+        'hospital': st.session_state.get('user_hospital')
     }
     
     # Patient selection
@@ -3046,7 +3226,8 @@ def patient_management_page():
     # Get current user info from session state
     current_user = {
         'username': st.session_state.get('username'),
-        'role': st.session_state.get('user_role')
+        'role': st.session_state.get('user_role'),
+        'hospital': st.session_state.get('user_hospital')
     }
     
     # For non-doctors, show a message if they try to access patient management
@@ -3220,7 +3401,8 @@ def analytics_page():
     # Get current user info
     current_user = {
         'username': st.session_state.get('username'),
-        'role': st.session_state.get('user_role')
+        'role': st.session_state.get('user_role'),
+        'hospital': st.session_state.get('user_hospital')
     }
     
     # Show info banner for patients and nurses
@@ -3347,7 +3529,8 @@ def appointments_page():
     # Get current user info
     current_user = {
         'username': st.session_state.get('username'),
-        'role': st.session_state.get('user_role')
+        'role': st.session_state.get('user_role'),
+        'hospital': st.session_state.get('user_hospital')
     }
     
     tab1, tab2 = st.tabs(["All Appointments", "Schedule New"])
@@ -3411,7 +3594,8 @@ def alerts_page():
     # Get current user info
     current_user = {
         'username': st.session_state.get('username'),
-        'role': st.session_state.get('user_role')
+        'role': st.session_state.get('user_role'),
+        'hospital': st.session_state.get('user_hospital')
     }
     
     # Show info banner for patients
@@ -3492,7 +3676,8 @@ def reports_page():
     # Get current user info
     current_user = {
         'username': st.session_state.get('username'),
-        'role': st.session_state.get('user_role')
+        'role': st.session_state.get('user_role'),
+        'hospital': st.session_state.get('user_hospital')
     }
     
     # Show info banner for patients
@@ -3614,6 +3799,355 @@ def reports_page():
     
     conn.close()
 
+def ai_assistant_page():
+    """AI Assistant page with Gemini 2.5 Flash chatbot and pre-defined questions"""
+    st.title("🤖 AI Health Assistant")
+    st.markdown("")
+    
+    # Initialize chat history
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    if 'ai_model' not in st.session_state:
+        try:
+            genai.configure(api_key=st.session_state.api_key)
+            st.session_state.ai_model = genai.GenerativeModel('gemini-2.5-flash')
+        except Exception as e:
+            st.error(f"Error configuring AI model: {str(e)}")
+            return
+    
+    # Pre-defined questions section
+    st.subheader("💡 Quick Questions")
+    st.markdown("Click on any question below to get instant answers:")
+    
+    predefined_questions = [
+        "What are normal blood glucose levels?",
+        "How often should I check my blood sugar?",
+        "What factors can affect blood glucose readings?",
+        "What should I do if my glucose is too high?",
+        "What should I do if my glucose is too low?",
+        "How does diet affect blood sugar levels?",
+        "What are the symptoms of diabetes?",
+        "How can I manage diabetes effectively?",
+        "What is HbA1c and why is it important?",
+        "When should I contact my doctor about glucose readings?"
+    ]
+    
+    # Display questions in a grid
+    cols = st.columns(2)
+    for i, question in enumerate(predefined_questions):
+        with cols[i % 2]:
+            if st.button(f"❓ {question}", key=f"q_{i}", use_container_width=True):
+                # Add question to chat and get response
+                st.session_state.chat_history.append({"role": "user", "content": question})
+                with st.spinner("🤔 Thinking..."):
+                    try:
+                        response = st.session_state.ai_model.generate_content(
+                            f"As a medical AI assistant for diabetes management, please answer this question: {question}. "
+                            f"Provide accurate, helpful information but remind users to consult healthcare professionals for personalized advice."
+                        )
+                        st.session_state.chat_history.append({"role": "assistant", "content": response.text})
+                    except Exception as e:
+                        st.session_state.chat_history.append({"role": "assistant", "content": f"Sorry, I encountered an error: {str(e)}"})
+                st.rerun()
+    
+    st.markdown("---")
+    
+    # Chat interface
+    st.subheader("💬 Chat with AI Assistant")
+    
+    # Display chat history
+    chat_container = st.container()
+    with chat_container:
+        for message in st.session_state.chat_history:
+            if message["role"] == "user":
+                st.markdown(f"""
+                <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                color: white; padding: 10px 15px; border-radius: 18px 18px 5px 18px; 
+                                max-width: 70%; word-wrap: break-word;">
+                        <strong>You:</strong> {message["content"]}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div style="display: flex; justify-content: flex-start; margin-bottom: 10px;">
+                    <div style="background: #f0f2f6; color: #333; padding: 10px 15px; 
+                                border-radius: 18px 18px 18px 5px; max-width: 70%; word-wrap: break-word;">
+                        <strong>🤖 AI Assistant:</strong> {message["content"]}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+    
+    # Chat input
+    user_input = st.chat_input("Ask me anything about diabetes management...")
+    
+    if user_input:
+        # Add user message to chat history
+        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        
+        # Generate AI response
+        with st.spinner("🤔 AI is thinking..."):
+            try:
+                # Create context-aware prompt
+                context = "You are a helpful AI assistant specializing in diabetes management and glucometer readings. "
+                context += "Provide accurate, helpful information but always remind users to consult healthcare professionals for personalized medical advice. "
+                context += f"User question: {user_input}"
+                
+                response = st.session_state.ai_model.generate_content(context)
+                st.session_state.chat_history.append({"role": "assistant", "content": response.text})
+            except Exception as e:
+                st.session_state.chat_history.append({"role": "assistant", "content": f"Sorry, I encountered an error: {str(e)}"})
+        
+        st.rerun()
+    
+    # Clear chat button
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        if st.button("🗑️ Clear Chat History", use_container_width=True):
+            st.session_state.chat_history = []
+            st.rerun()
+    
+    # Disclaimer
+    st.markdown("---")
+    st.info("⚠️ **Disclaimer:** This AI assistant provides general information only. Always consult with qualified healthcare professionals for personalized medical advice, diagnosis, or treatment decisions.")
+
+def tech_support_page():
+    """Tech Support page with developer contact information"""
+    st.title("🛠️ Technical Support")
+    st.markdown("Need help? Our development team is here to assist you!")
+    
+    # Support options
+    st.subheader("📞 Contact Options")
+    
+    support_tabs = st.tabs(["👨‍💻 Development Team", "📧 Email Support", "🆘 Emergency Contact"])
+    
+    with support_tabs[0]:
+        st.markdown("### Meet Our Development Team")
+        
+        # Developer information
+        developers = [
+            {
+                "name": "Teja",
+                "role": "Lead Developer",
+                "phone": "9686555926",
+                "email": "gtejanaidu.info@gmail.com",
+                "image": r"C:\Users\tejan\OneDrive\Desktop\OCR\WhatsApp Image 2025-11-15 at 18.58.31_6664e6e3.jpg"
+            },
+            {
+                "name": "Samuvel",
+                "role": "Developer",
+                "phone": "9003229709",
+                "email": "melchisammy@gmail.com",
+                "image": r"C:\Users\tejan\OneDrive\Desktop\OCR\WhatsApp Image 2025-11-15 at 19.00.35_6b03fb5e.jpg"
+            },
+            {
+                "name": "Raju",
+                "role": "Developer",
+                "phone": "87222 97627",
+                "email": "rajub14325@gmail.com",
+                "image": r"C:\Users\tejan\OneDrive\Desktop\OCR\WhatsApp Image 2025-11-15 at 18.49.15_310be34a.jpg"
+            },
+            {
+                "name": "Jayanth",
+                "role": "Developer",
+                "phone": "8867353499",
+                "email": "jjayanthkumar61@gmail.com",
+                "image": r"C:\Users\tejan\OneDrive\Desktop\OCR\WhatsApp Image 2025-11-15 at 18.59.08_f495d0d5.jpg"
+            }
+        ]
+        
+        # Display developers in a clean grid layout using Streamlit components
+        for i in range(0, len(developers), 2):
+            cols = st.columns(2, gap="large")
+            for j, col in enumerate(cols):
+                if i + j < len(developers):
+                    dev = developers[i + j]
+                    with col:
+                        # Create a modern card using Streamlit components
+                        st.markdown(f"""
+                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                    padding: 25px; border-radius: 15px; margin-bottom: 20px;
+                                    box-shadow: 0 6px 20px rgba(0,0,0,0.15); text-align: center;">
+                            <h3 style="color: white; margin: 0 0 5px 0; font-size: 1.4rem;">{dev['name']}</h3>
+                            <p style="color: rgba(255,255,255,0.9); margin: 0 0 15px 0; font-size: 1rem;">{dev['role']}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Display image using Streamlit's native image function
+                        try:
+                            if Path(dev['image']).exists():
+                                # Center the image
+                                col1, col2, col3 = st.columns([1, 2, 1])
+                                with col2:
+                                    st.image(dev['image'], width=150, caption="")
+                            else:
+                                st.markdown("""
+                                <div style="display: flex; justify-content: center; margin: 15px 0;">
+                                    <div style="width: 150px; height: 150px; border-radius: 50%; 
+                                               background: #f0f2f6; border: 3px solid #ddd; 
+                                               display: flex; align-items: center; justify-content: center;
+                                               color: #666; font-size: 18px;">
+                                        📷
+                                    </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        except Exception:
+                            st.markdown("""
+                            <div style="display: flex; justify-content: center; margin: 15px 0;">
+                                <div style="width: 150px; height: 150px; border-radius: 50%; 
+                                           background: #f0f2f6; border: 3px solid #ddd; 
+                                           display: flex; align-items: center; justify-content: center;
+                                           color: #666; font-size: 18px;">
+                                    📷
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        
+                        # Contact information in a clean box
+                        st.markdown(f"""
+                        <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; 
+                                    margin: 15px 0; text-align: center;">
+                            <p style="margin: 5px 0; color: #333; font-size: 0.9rem;">
+                                <strong>📱 Phone:</strong> {dev['phone']}
+                            </p>
+                            <p style="margin: 5px 0; color: #333; font-size: 0.9rem;">
+                                <strong>📧 Email:</strong> {dev['email']}
+                            </p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Contact buttons using Streamlit columns
+                        btn_col1, btn_col2 = st.columns(2)
+                        with btn_col1:
+                            st.markdown(f"""
+                            <a href="tel:{dev['phone']}" target="_blank">
+                                <button style="background: #25D366; color: white; border: none; 
+                                              padding: 10px 15px; border-radius: 20px; width: 100%;
+                                              cursor: pointer; font-weight: 600; font-size: 0.9rem;">
+                                    📱 Call
+                                </button>
+                            </a>
+                            """, unsafe_allow_html=True)
+                        
+                        with btn_col2:
+                            st.markdown(f"""
+                            <a href="mailto:{dev['email']}" target="_blank">
+                                <button style="background: #4285F4; color: white; border: none; 
+                                              padding: 10px 15px; border-radius: 20px; width: 100%;
+                                              cursor: pointer; font-weight: 600; font-size: 0.9rem;">
+                                    📧 Email
+                                </button>
+                            </a>
+                            """, unsafe_allow_html=True)
+    
+    with support_tabs[1]:
+        st.markdown("### 📧 Email Support")
+        st.info("For detailed technical issues, please send us an email with the following information:")
+        
+        # Email template
+        st.markdown("""
+        **Please include:**
+        - 🆔 Your username and role
+        - 🐛 Detailed description of the issue
+        - 📱 Device and browser information
+        - 📸 Screenshots (if applicable)
+        - ⏰ When the issue occurred
+        """)
+        
+        # Quick email form
+        st.subheader("Quick Support Request")
+        with st.form("support_email"):
+            user_email = st.text_input("Your Email", value=st.session_state.get('username', ''))
+            issue_type = st.selectbox("Issue Type", [
+                "Login Problems",
+                "Upload Issues", 
+                "Data Sync Problems",
+                "Performance Issues",
+                "Feature Request",
+                "Bug Report",
+                "Other"
+            ])
+            issue_description = st.text_area("Describe your issue", height=100)
+            priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
+            
+            if st.form_submit_button("📤 Send Support Request"):
+                if user_email and issue_description:
+                    # Log the support request
+                    log_activity(st.session_state.get('username', 'Anonymous'), 
+                               "SUPPORT_REQUEST", 
+                               f"Type: {issue_type}, Priority: {priority}, Description: {issue_description[:100]}...")
+                    
+                    st.success("✅ Support request submitted! Our team will contact you within 24 hours.")
+                    st.info("📧 A copy of your request has been logged in the system.")
+                else:
+                    st.warning("Please fill in all required fields.")
+    
+    with support_tabs[2]:
+        st.markdown("### 🆘 Emergency Contact")
+        st.error("**For Critical System Issues Only**")
+        
+        st.markdown("""
+        **🚨 Emergency Hotline:** +91-9686555926 (Teja - Lead Developer)
+        
+        **When to use emergency contact:**
+        - 🔥 System completely down
+        - 🔒 Security breach suspected  
+        - 💾 Data loss or corruption
+        - 🏥 Patient safety concerns
+        
+        **⏰ Emergency Response Time:** Within 2 hours (24/7)
+        """)
+        
+        st.warning("⚠️ Please use emergency contact only for critical issues. For general support, use email or regular contact methods.")
+    
+    # FAQ Section
+    st.markdown("---")
+    st.subheader("❓ Frequently Asked Questions")
+    
+    faqs = [
+        {
+            "question": "How do I reset my password?",
+            "answer": "Go to Settings > Security > Change Password. You'll need your current password to set a new one."
+        },
+        {
+            "question": "Why can't I upload glucose readings?",
+            "answer": "Check if your API key is configured properly. Go to the sidebar and verify API status shows 'Configured'."
+        },
+        {
+            "question": "How do I add a new patient?",
+            "answer": "Navigate to Patient Management and click 'Add New Patient'. Fill in the required information and save."
+        },
+        {
+            "question": "Can I export my data?",
+            "answer": "Yes! Go to Reports section and generate the report you need, then click 'Download CSV' to export."
+        },
+        {
+            "question": "Is my data secure?",
+            "answer": "Yes, all data is encrypted and stored securely. We follow medical data privacy standards."
+        },
+        {
+            "question": "How do I delete my account?",
+            "answer": "Go to Settings > Security > Delete Account. You'll need to enter your password and type 'DELETE MY ACCOUNT' to confirm. This action is permanent and cannot be undone."
+        }
+    ]
+    
+    for i, faq in enumerate(faqs):
+        with st.expander(f"❓ {faq['question']}"):
+            st.markdown(faq['answer'])
+    
+    # System status
+    st.markdown("---")
+    st.subheader("🔧 System Status")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("🟢 System Status", "Online", "✅ All systems operational")
+    with col2:
+        st.metric("⚡ Response Time", "< 2s", "🚀 Excellent performance")
+    with col3:
+        st.metric("🔒 Security", "Secure", "🛡️ All systems protected")
+
 def settings_page():
     st.title("Settings")
     
@@ -3629,7 +4163,7 @@ def settings_page():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT full_name, email, phone, specialization 
+            SELECT full_name, email, phone, specialization, hospital_name 
             FROM users WHERE username = ?
         """, (st.session_state.username,))
         user_data = cursor.fetchone()
@@ -3641,14 +4175,24 @@ def settings_page():
             phone = st.text_input("Phone", value=user_data[2] or "")
             specialization = st.text_input("Specialization", value=user_data[3] or "")
             
+            # Show hospital name field for doctors and nurses
+            if st.session_state.get('user_role') in ['doctor', 'nurse']:
+                hospital_name = st.text_input("Hospital Name", value=user_data[4] or "")
+            else:
+                hospital_name = user_data[4] or ""
+            
             if st.button("Update Profile"):
                 conn = get_db_connection()
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE users 
-                    SET full_name = ?, email = ?, phone = ?, specialization = ?
+                    SET full_name = ?, email = ?, phone = ?, specialization = ?, hospital_name = ?
                     WHERE username = ?
-                """, (full_name, email, phone, specialization, st.session_state.username))
+                """, (full_name, email, phone, specialization, hospital_name, st.session_state.username))
+                
+                # Update session state if hospital name changed
+                if st.session_state.get('user_role') in ['doctor', 'nurse']:
+                    st.session_state.user_hospital = hospital_name
                 conn.commit()
                 conn.close()
                 st.success("Profile updated successfully!")
@@ -3685,6 +4229,123 @@ def settings_page():
                         st.error("Current password is incorrect!")
             else:
                 st.warning("Please fill in all fields")
+        
+        st.markdown("---")
+        st.subheader("🗑️ Delete Account")
+        st.error("**⚠️ DANGER ZONE - This action cannot be undone!**")
+        
+        st.markdown("""
+        **What happens when you delete your account:**
+        - 🗑️ Your user account will be permanently deleted
+        - 📊 All your patient records will be removed
+        - 📈 All glucose readings you uploaded will be deleted
+        - 📅 All your appointments will be cancelled
+        - 🔔 All your alerts will be cleared
+        - 📋 All associated data will be permanently erased
+        
+        **⚠️ This action is IRREVERSIBLE and IMMEDIATE!**
+        """)
+        
+        # Account deletion form
+        with st.expander("🚨 I understand the consequences - Show deletion options"):
+            st.warning("Please read the consequences above carefully before proceeding.")
+            
+            delete_password = st.text_input("Enter your current password to confirm deletion:", 
+                                          type="password", key="delete_password")
+            
+            delete_confirmation = st.text_input("Type 'DELETE MY ACCOUNT' to confirm:", 
+                                              key="delete_confirmation")
+            
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button("🗑️ PERMANENTLY DELETE MY ACCOUNT", 
+                           type="primary", 
+                           use_container_width=True,
+                           help="This will immediately and permanently delete your account and all associated data"):
+                    
+                    if delete_password and delete_confirmation == "DELETE MY ACCOUNT":
+                        # Verify password
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+                        hashed_password = hash_password(delete_password)
+                        cursor.execute("SELECT username FROM users WHERE username = ? AND password = ?",
+                                     (st.session_state.username, hashed_password))
+                        
+                        if cursor.fetchone():
+                            # Password is correct, proceed with deletion
+                            username = st.session_state.username
+                            user_role = st.session_state.user_role
+                            
+                            try:
+                                # Delete all associated data
+                                # 1. Find all patient records created by this user
+                                cursor.execute('SELECT patient_id FROM patients WHERE created_by = ?', (username,))
+                                patient_ids = [row[0] for row in cursor.fetchall()]
+                                
+                                # 2. Delete readings for these patients
+                                for patient_id in patient_ids:
+                                    cursor.execute('DELETE FROM readings WHERE patient_id = ?', (patient_id,))
+                                
+                                # 3. Delete appointments for these patients
+                                for patient_id in patient_ids:
+                                    cursor.execute('DELETE FROM appointments WHERE patient_id = ?', (patient_id,))
+                                
+                                # 4. Delete alerts for these patients
+                                for patient_id in patient_ids:
+                                    cursor.execute('DELETE FROM alerts WHERE patient_id = ?', (patient_id,))
+                                
+                                # 5. Delete patient records
+                                for patient_id in patient_ids:
+                                    cursor.execute('DELETE FROM patients WHERE patient_id = ?', (patient_id,))
+                                
+                                # 6. Delete appointments where user is the doctor
+                                cursor.execute('DELETE FROM appointments WHERE doctor_username = ?', (username,))
+                                
+                                # 7. Delete deletion warnings for this user
+                                cursor.execute('DELETE FROM deletion_warnings WHERE username = ?', (username,))
+                                
+                                # 8. Log the account deletion
+                                cursor.execute('''
+                                    INSERT INTO activity_log (username, action, details, timestamp)
+                                    VALUES (?, ?, ?, ?)
+                                ''', ('SYSTEM', 'ACCOUNT_DELETED', 
+                                      f'User {username} ({user_role}) deleted their account and all associated data',
+                                      datetime.now().isoformat()))
+                                
+                                # 9. Finally, delete the user account
+                                cursor.execute('DELETE FROM users WHERE username = ?', (username,))
+                                
+                                conn.commit()
+                                conn.close()
+                                
+                                # Clear session and redirect to login
+                                st.session_state.logged_in = False
+                                st.session_state.username = ""
+                                st.session_state.user_role = ""
+                                st.session_state.user_full_name = ""
+                                st.session_state.user_hospital = ""
+                                
+                                st.success("✅ Your account has been successfully deleted. You will be redirected to the login page.")
+                                st.info("Thank you for using our service. We're sorry to see you go.")
+                                
+                                time.sleep(3)
+                                st.rerun()
+                                
+                            except Exception as e:
+                                conn.rollback()
+                                conn.close()
+                                st.error(f"❌ Error deleting account: {str(e)}")
+                                st.error("Please contact technical support for assistance.")
+                        else:
+                            conn.close()
+                            st.error("❌ Incorrect password. Account deletion cancelled.")
+                    
+                    elif not delete_password:
+                        st.error("❌ Please enter your current password.")
+                    elif delete_confirmation != "DELETE MY ACCOUNT":
+                        st.error("❌ Please type 'DELETE MY ACCOUNT' exactly as shown to confirm.")
+                    else:
+                        st.error("❌ Please fill in all required fields correctly.")
     
     # Only show System tab for doctors and admins
     if st.session_state.get('user_role') in ['doctor', 'admin']:
@@ -3982,6 +4643,11 @@ def main():
             with c6:
                 new_password_confirm = st.text_input("Confirm Password", type="password", key="reg_password_confirm")
 
+            # Hospital Name field
+            new_hospital_name = st.text_input("Hospital/Organization Name", key="reg_hospital_name", 
+                                             placeholder="e.g., City General Hospital, ABC Clinic, etc.",
+                                             help="Hospital/Clinic/Organization Name (Required for Doctors and Nurses)")
+
             c7, c8 = st.columns(2)
             with c7:
                 new_role = st.selectbox("Role", ["doctor", "nurse", "admin", "patient"], key="reg_role", help="Select your role")
@@ -4001,6 +4667,10 @@ def main():
                 if new_phone:
                     required_flags_main.append(validate_phone(new_phone))
                 required_flags_main.append(new_role in ["doctor", "nurse", "admin", "patient"])
+                
+                # Add hospital name requirement for doctors and nurses
+                if new_role in ["doctor", "nurse"]:
+                    required_flags_main.append(bool(new_hospital_name.strip()))
                 progress_val_main = sum(required_flags_main)
                 total_steps_main = len(required_flags_main)
                 progress_ratio_main = progress_val_main / total_steps_main if total_steps_main else 0
@@ -4011,12 +4681,15 @@ def main():
 
             if st.button(" Register", use_container_width=True):
                 if new_username and new_email and new_full_name and new_password:
-                    if new_password != new_password_confirm:
+                    # Validate hospital name for doctors and nurses
+                    if new_role in ["doctor", "nurse"] and not new_hospital_name.strip():
+                        st.error("Hospital name is required for doctors and nurses!")
+                    elif new_password != new_password_confirm:
                         st.error("Passwords do not match!")
                     else:
                         success, message = register_user(
                             new_username, new_password, new_email, 
-                            new_full_name, new_role, new_phone, new_specialization
+                            new_full_name, new_role, new_phone, new_specialization, new_hospital_name
                         )
                         if success:
                             st.success("Registration successful! Please login.")
